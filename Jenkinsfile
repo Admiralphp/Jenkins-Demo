@@ -6,7 +6,7 @@ pipeline {
         // the value of a temporary file.  For example:
         //   /home/user/.jenkins/workspace/cred_test@tmp/secretFiles/546a5cf3-9b56-4165-a0fd-19e2afe6b31f/kubeconfig.txt
         // MY_KUBECONFIG = credentials('my-kubeconfig')
-        registry = "wahidh007/demo-jenkins"
+        registry = "mohamedessid/demo-jenkins"
         registryCredential = 'docker-hub-credentials'
         dockerImage = ''        
     }
@@ -37,14 +37,14 @@ pipeline {
             }
         }
         
-        stage('Build image') {
-          steps{
-              // sh "docker build -t $registry:$BUILD_NUMBER ."
-              script {
-                dockerImage = docker.build registry + ":$BUILD_NUMBER"   
-              }          
-          }
-        }       
+                stage('Build image') {
+                    steps{
+                            // Use Docker CLI and force HOME to /home/jenkins to avoid snap confinement issues
+                            withEnv(["HOME=/home/jenkins"]) {
+                                sh "docker build -t ${registry}:${BUILD_NUMBER} ."
+                            }
+                    }
+                }       
 
         // // Add docker hub credentials in Jenkins : Go to Credentials → Global → Add credentials 
         // stage('Push image') {
@@ -58,13 +58,23 @@ pipeline {
         //   }
         // }
 
-        stage('Deploy Docker container'){
-          steps {
-            // sh "docker stop ${IMAGE_NAME} || true && docker rm $registry:$BUILD_NUMBER || true"
-            sh "docker run --name demo-jenkins -d -p 2222:2222 $registry:$BUILD_NUMBER"
-            slackSend color: "good", message: registry + ":$BUILD_NUMBER" + " - image successfully created! :man_dancing:"
-          }
-        }
+                stage('Deploy Docker container'){
+                    steps {
+                        withEnv(["HOME=/home/jenkins"]) {
+                            sh """
+                                docker rm -f demo-jenkins || true
+                                docker run --name demo-jenkins -d -p 2222:2222 ${registry}:${BUILD_NUMBER}
+                            """
+                        }
+                        script {
+                            try {
+                                slackSend color: "good", message: registry + ":$BUILD_NUMBER" + " - image successfully created! :man_dancing:"
+                            } catch (err) {
+                                echo "Slack notify skipped (plugin missing or not configured): ${err}"
+                            }
+                        }
+                    }
+                }
 
         // stage('Deploy K8S'){
         //   steps {
@@ -89,11 +99,23 @@ pipeline {
     post {
         success {
             echo 'Pipeline execution successful!'
-            slackSend color: "good", message: "Pipeline execution successful! :man_dancing:"
+            script {
+                try {
+                    slackSend color: "good", message: "Pipeline execution successful! :man_dancing:"
+                } catch (err) {
+                    echo "Slack notify skipped in post-success (plugin missing or not configured): ${err}"
+                }
+            }
         }
         failure {
             echo 'Pipeline execution failed.'
-            slackSend color: "danger", message: "Pipeline execution failed! :ghost:"
+            script {
+                try {
+                    slackSend color: "danger", message: "Pipeline execution failed! :ghost:"
+                } catch (err) {
+                    echo "Slack notify skipped in post-failure (plugin missing or not configured): ${err}"
+                }
+            }
         }
     }    
 }
